@@ -76,12 +76,75 @@ Rel(credit_app_service, sms_gateway, "8. Отправляет уведомлен
 
 Диаграмма контейнеров онлайн заявка на кредит 
 
-Также опишите, какой логикой вы руководствовались в ходе принятия решений и выбора технологий. Не забывайте, что необходимо учесть все функциональные и нефункциональные требования.
+@startuml
+!include <C4/C4_Container.puml>
+title Диаграмма контейнеров: Онлайн-заявка на кредит
+
+' Люди
+Person(new_customer, "Клиент (новый)", "")
+Person(existing_customer, "Клиент (существующий)", "")
+Person(backoffice_worker, "Сотрудник бэк-офиса", "")
+
+' Цифровая экосистема банка
+System_Boundary(digital_ecosystem, "Цифровая экосистема банка") {
+    Container(site, "Сайт", "PHP, React", "Публичный сайт")
+    Container(ib, "Интернет-банк", "ASP.NET", "Онлайн-обслуживание")
+    
+    Container(credit_app_service, "Сервис кредитных заявок", "Java Spring Boot", "Оркестрация процесса подачи заявки")
+    ContainerDb(credit_app_db, "БД кредитных заявок", "PostgreSQL", "Хранение заявок, логов, статусов")
+    
+    Container(products_service, "Сервис продуктов", "Java Spring Boot", "Каталог продуктов, предодобренные предложения")
+    Container(kafka, "Apache Kafka", "", "Шина событий")
+}
+
+' Связанные системы
+Container(scoring_system, "Система скоринга", "Python, Flask, PostgreSQL", "Расчет кредитного рейтинга")
+Container(loan_conveyor, "Кредитный конвейер", "Camunda, Java, Oracle", "Обработка и согласование заявок")
+Container(abs, "АБС", "Delphi, PL/SQL, Oracle", "Учет операций, создание договоров")
+ContainerDb(abs_db, "БД АБС", "Oracle", "Основная база данных банка")
+
+' Внешние системы
+System_Ext(bki, "БКИ", "REST API", "Кредитные истории")
+System_Ext(sms_gateway, "СМС-шлюз", "REST API", "Отправка SMS")
+
+' Взаимодействия
+' 1-2. Подача заявки
+Rel(new_customer, site, "Подает заявку", "")
+Rel(existing_customer, ib, "Подает заявку", "")
+Rel(site, credit_app_service, "Отправляет данные заявки", "REST API")
+Rel(ib, credit_app_service, "Отправляет данные заявки", "REST API")
+
+' 3. Скоринг для новой заявки
+Rel(credit_app_service, scoring_system, "Запрос скоринга по заявке", "REST API")
+Rel(scoring_system, bki, "Запрос кредитной истории", "REST API")
+
+' 4. Работа с продуктами и предодобрениями
+Rel(ib, products_service, "Запрашивает предодобренные предложения", "REST API")
+Rel(products_service, scoring_system, "Пакетный запрос для предодобрений (раз в сутки)", "REST API")
+
+' 5. Создание заявки в конвейере
+Rel(credit_app_service, loan_conveyor, "Создает процесс обработки заявки", "REST API (Camunda API)")
+
+' 6. Обработка в конвейере и АБС
+Rel(backoffice_worker, loan_conveyor, "Обрабатывает заявку", "Web UI")
+Rel(loan_conveyor, kafka, "Публикует событие 'Кредит одобрен'", "Kafka Producer")
+Rel(kafka, abs, "Консьюмер: создает договор в АБС", "Kafka Consumer → JDBC")
+
+' 7. Уведомления
+Rel(credit_app_service, sms_gateway, "Отправка SMS о статусе", "REST API")
+
+' 8. Внутренние связи
+Rel(credit_app_service, credit_app_db, "Чтение/запись", "JDBC")
+Rel(products_service, credit_app_db, "Чтение предодобрений (кеш)", "JDBC")
+
+@enduml
+
 ### <a name="_bjrr7veeh80c"></a>**Альтернативы**
-Опишите здесь наиболее важные альтернативные решения.
+Прямое создание заявки в АБС из онлайн-каналов	
+Синхронный вызов АБС для проверки данных клиента при каждой заявке	
 
 **Недостатки, ограничения, риски**
 
 Подробно опишите здесь недостатки, ограничения и риски выбранного решения.
-
+Сложность потока данных: Заявка проходит через множество систем (Сервис заявок → Скоринг/БКИ → Конвейер → АБС). Увеличивается сложность отладки и обеспечения сквозной трассировки.
 
